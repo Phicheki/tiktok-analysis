@@ -1,534 +1,650 @@
-// App Controller
-const App = {
-    state: {
-        products: [],
-        loading: false,
-        filters: {
-            category: '',
-            growth: '',
-            commission: '',
-            competition: ''
-        },
-        currentTab: 'trending',
-        sortBy: 'growth',
-    },
+/**
+ * TikTok Affiliate Hunter - Main Application
+ */
 
+const App = {
+    currentProducts: [],
+    currentTab: 'trending',
+    isLoading: false,
+    charts: {},
+
+    /**
+     * Initialize the application
+     */
     init() {
         this.bindEvents();
         this.checkApiKey();
-        this.loadSettings();
-        
-        // Load demo data if no key (for testing)
-        if (!localStorage.getItem('firecrawl_api_key')) {
-            this.loadDemoData();
-        }
+        MyDashboard.init();
+        console.log('🎯 TikTok Affiliate Hunter initialized');
     },
 
+    /**
+     * Bind event listeners
+     */
     bindEvents() {
-        // Search & Filter Events
-        document.getElementById('searchBtn').addEventListener('click', () => this.performSearch());
-        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        // Settings modal
+        document.getElementById('settingsBtn')?.addEventListener('click', () => this.openSettings());
+        document.getElementById('closeSettings')?.addEventListener('click', () => this.closeSettings());
+        document.getElementById('saveSettings')?.addEventListener('click', () => this.saveSettings());
+        document.getElementById('testApiBtn')?.addEventListener('click', () => this.testApiKey());
+
+        // Settings modal overlay click
+        document.querySelector('#settingsModal .modal-overlay')?.addEventListener('click', () => this.closeSettings());
+
+        // Search
+        document.getElementById('searchBtn')?.addEventListener('click', () => this.performSearch());
+        document.getElementById('searchInput')?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this.performSearch();
         });
 
         // Filters
-        ['filterCategory', 'filterGrowth', 'filterCommission', 'filterCompetition'].forEach(id => {
-            document.getElementById(id).addEventListener('change', () => this.applyFilters());
-        });
+        document.getElementById('filterCategory')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterGrowth')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterCommission')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterCompetition')?.addEventListener('change', () => this.applyFilters());
 
-        // Sorting
-        document.getElementById('sortBy').addEventListener('change', (e) => {
-            this.state.sortBy = e.target.value;
-            this.renderProducts();
-        });
+        // Sort
+        document.getElementById('sortBy')?.addEventListener('change', (e) => this.sortProducts(e.target.value));
 
         // Tabs
-        document.querySelectorAll('.tab').forEach(btn => {
-            btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
         });
 
-        // Settings Modal
-        document.getElementById('settingsBtn').addEventListener('click', () => this.toggleModal('settingsModal', true));
-        document.getElementById('closeSettings').addEventListener('click', () => this.toggleModal('settingsModal', false));
-        document.getElementById('saveSettings').addEventListener('click', () => this.saveSettings());
-        
-        // API Test Button
-        document.getElementById('testApiBtn').addEventListener('click', () => this.testApiKey());
+        // Product modal
+        document.getElementById('closeProduct')?.addEventListener('click', () => this.closeProductModal());
+        document.querySelector('#productModal .modal-overlay')?.addEventListener('click', () => this.closeProductModal());
 
-        // Product Modal
-        document.getElementById('closeProduct').addEventListener('click', () => this.toggleModal('productModal', false));
-        document.querySelector('.modal-overlay').addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal-overlay')) {
-                this.toggleModal('productModal', false);
-            }
-        });
-
-        // Export Button in Dashboard
-        document.getElementById('exportBtn').addEventListener('click', () => LinkManager.exportLinks());
+        // Export
+        document.getElementById('exportBtn')?.addEventListener('click', () => this.showExportModal());
     },
 
+    /**
+     * Check if API key is set
+     */
+    checkApiKey() {
+        if (!StorageService.hasApiKey()) {
+            this.openSettings();
+            this.showToast('⚠️ กรุณาตั้งค่า API Key ก่อนใช้งาน', 'warning');
+        }
+    },
+
+    /**
+     * Open settings modal
+     */
+    openSettings() {
+        const modal = document.getElementById('settingsModal');
+        const apiKeyInput = document.getElementById('apiKey');
+
+        if (apiKeyInput) {
+            apiKeyInput.value = StorageService.getApiKey();
+        }
+
+        modal?.classList.add('active');
+    },
+
+    /**
+     * Close settings modal
+     */
+    closeSettings() {
+        document.getElementById('settingsModal')?.classList.remove('active');
+    },
+
+    /**
+     * Save settings
+     */
+    saveSettings() {
+        const apiKey = document.getElementById('apiKey')?.value?.trim();
+
+        if (apiKey) {
+            StorageService.setApiKey(apiKey);
+            this.showToast('✅ บันทึก API Key แล้ว!', 'success');
+            this.closeSettings();
+        } else {
+            this.showToast('⚠️ กรุณาใส่ API Key', 'warning');
+        }
+    },
+
+    /**
+     * Test API Key
+     */
+    async testApiKey() {
+        const apiKey = document.getElementById('apiKey')?.value?.trim();
+        const resultEl = document.getElementById('apiTestResult');
+
+        if (!apiKey) {
+            this.showToast('⚠️ กรุณาใส่ API Key ก่อนทดสอบ', 'warning');
+            return;
+        }
+
+        // Validate API key format
+        if (!apiKey.startsWith('fc-')) {
+            resultEl.className = 'api-test-result show error';
+            resultEl.innerHTML = '❌ รูปแบบ API Key ไม่ถูกต้อง (ต้องขึ้นต้นด้วย fc-)';
+            return;
+        }
+
+        // Show loading state
+        resultEl.className = 'api-test-result show loading';
+        resultEl.innerHTML = '🔄 กำลังทดสอบ API Key...';
+
+        try {
+            // Test with a simple scrape request
+            const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    url: 'https://example.com',
+                    formats: ['markdown'],
+                    timeout: 10000
+                })
+            });
+
+            if (response.ok) {
+                resultEl.className = 'api-test-result show success';
+                resultEl.innerHTML = '✅ API Key ใช้งานได้! พร้อมใช้งานแล้ว';
+                this.showToast('✅ API Key ทดสอบผ่าน!', 'success');
+            } else if (response.status === 401) {
+                resultEl.className = 'api-test-result show error';
+                resultEl.innerHTML = '❌ API Key ไม่ถูกต้องหรือหมดอายุ';
+            } else if (response.status === 402) {
+                resultEl.className = 'api-test-result show error';
+                resultEl.innerHTML = '❌ Credits หมด กรุณาเติมเงินที่ firecrawl.dev';
+            } else if (response.status === 429) {
+                resultEl.className = 'api-test-result show error';
+                resultEl.innerHTML = '⚠️ Rate limit exceeded รอสักครู่แล้วลองใหม่';
+            } else {
+                const error = await response.json().catch(() => ({}));
+                resultEl.className = 'api-test-result show error';
+                resultEl.innerHTML = `❌ Error ${response.status}: ${error.message || 'Unknown error'}`;
+            }
+        } catch (error) {
+            resultEl.className = 'api-test-result show error';
+            resultEl.innerHTML = `❌ Connection error: ${error.message}`;
+        }
+    },
+
+    /**
+     * Perform search
+     */
     async performSearch() {
-        const query = document.getElementById('searchInput').value.trim();
+        const query = document.getElementById('searchInput')?.value?.trim();
+
         if (!query) {
-            this.showToast('กรุณาใส่ URL หรือ Keyword', 'info');
+            this.showToast('⚠️ กรุณาใส่ URL หรือ Keyword', 'warning');
+            return;
+        }
+
+        if (!StorageService.hasApiKey()) {
+            this.showToast('⚠️ กรุณาตั้งค่า API Key ก่อน', 'warning');
+            this.openSettings();
             return;
         }
 
         this.setLoading(true);
+
         try {
-            // Check for API key
-            const apiKey = localStorage.getItem('firecrawl_api_key');
-            if (!apiKey) {
-                this.showToast('กรุณาใส่ API Key ใน Settings ก่อน', 'error');
-                this.toggleModal('settingsModal', true);
-                this.setLoading(false);
-                return;
+            let products = [];
+
+            // Check if it's a URL or keyword
+            if (query.startsWith('http')) {
+                // Scrape from URL
+                if (query.includes('/product/') || query.includes('item_id')) {
+                    // Single product
+                    const product = await FirecrawlService.scrapeProduct(query);
+                    products = [product];
+                } else {
+                    // Shop or search page
+                    products = await FirecrawlService.scrapeProducts(query);
+                }
+            } else {
+                // Search by keyword
+                products = await FirecrawlService.searchProducts(query);
             }
 
-            // Call Firecrawl Service
-            const products = await FirecrawlService.searchProducts(query);
-            
-            // Normalize and Analyze Data
-            this.state.products = products.map(p => {
-                const normalized = FirecrawlService.normalizeProduct(p);
-                // Calculate derived metrics
-                normalized.saturationScore = AnalyzerService.calculateSaturationScore(normalized);
-                normalized.potentialEarnings = CommissionDisplay.calculateEarnings(normalized.price, normalized.commissionRate);
-                return normalized;
-            });
-
-            this.updateStats();
+            this.currentProducts = products;
             this.renderProducts();
+            this.updateStatistics();
             this.updateCharts();
 
-            if (this.state.products.length === 0) {
-                document.getElementById('emptyState').style.display = 'flex';
-                document.getElementById('productsSection').style.display = 'none';
+            if (products.length > 0) {
+                this.showToast(`✅ พบ ${products.length} สินค้า`, 'success');
             } else {
-                document.getElementById('emptyState').style.display = 'none';
-                document.getElementById('productsSection').style.display = 'block';
-                document.getElementById('statsGrid').style.display = 'grid';
+                this.showToast('ไม่พบสินค้า ลองใช้ keyword อื่น', 'info');
             }
-
         } catch (error) {
             console.error('Search error:', error);
-            this.showToast('เกิดข้อผิดพลาดในการค้นหา: ' + error.message, 'error');
+            this.showToast(`❌ Error: ${error.message}`, 'error');
+
+            // Load demo data for testing
+            this.loadDemoData();
         } finally {
             this.setLoading(false);
         }
     },
 
-    applyFilters() {
-        this.state.filters = {
-            category: document.getElementById('filterCategory').value,
-            growth: document.getElementById('filterGrowth').value,
-            commission: document.getElementById('filterCommission').value,
-            competition: document.getElementById('filterCompetition').value
-        };
+    /**
+     * Load demo data for testing
+     */
+    loadDemoData() {
+        const categories = ['Beauty', 'Fashion', 'Electronics', 'Home & Living', 'Food'];
+        const demoProducts = Array.from({ length: 20 }, (_, i) => ({
+            id: `demo_${i}`,
+            name: `สินค้าตัวอย่าง ${i + 1} - ${categories[i % categories.length]} Product`,
+            price: Math.floor(Math.random() * 2000) + 100,
+            originalPrice: Math.floor(Math.random() * 3000) + 500,
+            discountPercentage: Math.floor(Math.random() * 50),
+            soldCount: Math.floor(Math.random() * 10000) + 100,
+            soldText: `${(Math.random() * 10).toFixed(1)}K sold`,
+            rating: (Math.random() * 1 + 4).toFixed(1),
+            reviewCount: Math.floor(Math.random() * 500),
+            category: categories[i % categories.length],
+            sellerName: `Shop ${i + 1}`,
+            image: `https://picsum.photos/300/300?random=${i}`,
+            url: 'https://shop.tiktok.com',
+            affiliateLink: `https://shop.tiktok.com?affiliate=demo&product=${i}`,
+            commissionRate: Math.floor(Math.random() * 15) + 5,
+            growthRate: Math.floor(Math.random() * 200) + 10,
+            potentialEarnings: Math.floor(Math.random() * 50000) + 1000,
+            scrapedAt: new Date().toISOString()
+        }));
+
+        this.currentProducts = demoProducts;
         this.renderProducts();
+        this.updateStatistics();
+        this.updateCharts();
+        this.showToast('📦 โหลด Demo Data สำหรับทดสอบ', 'info');
     },
 
-    renderProducts() {
-        const grid = document.getElementById('productsGrid');
-        grid.innerHTML = '';
+    /**
+     * Set loading state
+     */
+    setLoading(loading) {
+        this.isLoading = loading;
 
-        let filtered = this.state.products;
+        const loadingEl = document.getElementById('loadingState');
+        const emptyEl = document.getElementById('emptyState');
+        const productsEl = document.getElementById('productsSection');
+        const statsEl = document.getElementById('statsGrid');
+        const chartsEl = document.getElementById('chartsSection');
+        const dashboardEl = document.getElementById('dashboardSection');
 
-        // 1. Filter by Tab Logic
-        if (this.state.currentTab === 'trending') {
-            filtered = TrendingFinder.findTrendingProducts(filtered, 7); // Growth > 20%
-        } else if (this.state.currentTab === 'hidden-gems') {
-            filtered = CompetitionDetector.findHiddenGems(filtered);
-        } else if (this.state.currentTab === 'top-commission') {
-            filtered = CommissionDisplay.findTopCommissionProducts(filtered);
-        } else if (this.state.currentTab === 'my-dashboard') {
-            // Handled separately in MyDashboard module, but basic list here
-             filtered = []; // MyDashboard renders its own content
-             MyDashboard.render();
-             return; 
+        if (loading) {
+            loadingEl.style.display = 'flex';
+            emptyEl.style.display = 'none';
+            productsEl.style.display = 'none';
+            dashboardEl.style.display = 'none';
+        } else {
+            loadingEl.style.display = 'none';
+
+            if (this.currentProducts.length > 0 && this.currentTab !== 'my-dashboard') {
+                productsEl.style.display = 'block';
+                statsEl.style.display = 'grid';
+                chartsEl.style.display = 'grid';
+                emptyEl.style.display = 'none';
+            } else if (this.currentTab === 'my-dashboard') {
+                dashboardEl.style.display = 'block';
+                productsEl.style.display = 'none';
+                emptyEl.style.display = 'none';
+            } else {
+                emptyEl.style.display = 'flex';
+            }
+        }
+    },
+
+    /**
+     * Switch tab
+     */
+    switchTab(tabName) {
+        this.currentTab = tabName;
+
+        // Update tab buttons
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === tabName);
+        });
+
+        // Handle My Dashboard separately
+        if (tabName === 'my-dashboard') {
+            document.getElementById('productsSection').style.display = 'none';
+            document.getElementById('statsGrid').style.display = 'none';
+            document.getElementById('chartsSection').style.display = 'none';
+            document.getElementById('dashboardSection').style.display = 'block';
+            document.getElementById('emptyState').style.display = 'none';
+            MyDashboard.renderContent();
+            return;
         }
 
-        // 2. Apply Dropdown Filters
-        filtered = AnalyzerService.filterProducts(filtered, this.state.filters);
+        // Hide dashboard, show products
+        document.getElementById('dashboardSection').style.display = 'none';
 
-        // 3. Sort
-        filtered = AnalyzerService.sortProducts(filtered, this.state.sortBy);
+        if (this.currentProducts.length > 0) {
+            document.getElementById('productsSection').style.display = 'block';
+            document.getElementById('statsGrid').style.display = 'grid';
+            document.getElementById('chartsSection').style.display = 'grid';
+            this.renderProducts();
+        } else {
+            document.getElementById('emptyState').style.display = 'flex';
+        }
+    },
 
-        // Render
-        filtered.forEach(product => {
-            const card = window.createProductCard(product); // Using helper from component
+    /**
+     * Render products based on current tab
+     */
+    renderProducts() {
+        const grid = document.getElementById('productsGrid');
+        const sectionHeader = document.querySelector('.section-header h2');
+        if (!grid) return;
+
+        // Safety check - ensure currentProducts is an array
+        if (!Array.isArray(this.currentProducts)) {
+            console.warn('currentProducts is not an array');
+            this.currentProducts = [];
+        }
+
+        let products = [...this.currentProducts];
+
+        // Filter and sort based on tab
+        switch (this.currentTab) {
+            case 'trending':
+                products = TrendingFinder.findTrending(products, 0);
+                if (sectionHeader) sectionHeader.textContent = '🔥 Trending Products';
+                break;
+            case 'hidden-gems':
+                products = CompetitionDetector.findHiddenGems(products);
+                if (sectionHeader) sectionHeader.textContent = '🎯 Hidden Gems';
+                break;
+            case 'top-commission':
+                products = CommissionDisplay.findTopCommission(products);
+                if (sectionHeader) sectionHeader.textContent = '💰 Top Commission';
+                break;
+        }
+
+        // Apply current filters
+        products = this.getFilteredProducts(products);
+
+        // Apply current sort
+        const sortBy = document.getElementById('sortBy')?.value || 'growth';
+        products = AnalyzerService.sortProducts(products, sortBy);
+
+        // Render cards
+        grid.innerHTML = '';
+        products.forEach(product => {
+            const card = createProductCard(product);
             grid.appendChild(card);
         });
 
-        // Update count
-        document.getElementById('totalProducts').textContent = filtered.length;
+        // Update count in header
+        if (sectionHeader) {
+            const count = products.length;
+            sectionHeader.innerHTML = sectionHeader.textContent.split('(')[0] + ` (${count})`;
+        }
     },
 
-    updateStats() {
-        const products = this.state.products;
-        if (!products.length) return;
+    /**
+     * Get filtered products based on current filter values
+     */
+    getFilteredProducts(products) {
+        const filters = {
+            category: document.getElementById('filterCategory')?.value,
+            growth: document.getElementById('filterGrowth')?.value,
+            commission: document.getElementById('filterCommission')?.value,
+            competition: document.getElementById('filterCompetition')?.value
+        };
 
-        const avgGrowth = products.reduce((sum, p) => sum + p.growthRate, 0) / products.length;
-        const avgComm = products.reduce((sum, p) => sum + p.commissionRate, 0) / products.length;
-        const gems = products.filter(p => p.saturationScore < 30).length;
-
-        document.getElementById('avgGrowth').textContent = `${avgGrowth.toFixed(1)}%`;
-        document.getElementById('avgCommission').textContent = `${avgComm.toFixed(1)}%`;
-        document.getElementById('hiddenGemsCount').textContent = gems;
-
-        // Animate numbers (simple implementation)
-        this.animateValue('totalProducts', 0, products.length, 1000);
+        return AnalyzerService.filterProducts(products, filters);
     },
 
+    /**
+     * Apply filters
+     */
+    applyFilters() {
+        this.renderProducts();
+    },
+
+    /**
+     * Sort products
+     */
+    sortProducts(sortBy) {
+        this.renderProducts();
+    },
+
+    /**
+     * Update statistics cards
+     */
+    updateStatistics() {
+        const stats = AnalyzerService.calculateStatistics(this.currentProducts);
+
+        document.getElementById('totalProducts').textContent = stats.totalProducts;
+        document.getElementById('avgGrowth').textContent = `${stats.avgGrowth}%`;
+        document.getElementById('avgCommission').textContent = `${stats.avgCommission}%`;
+        document.getElementById('hiddenGemsCount').textContent = stats.hiddenGemsCount;
+    },
+
+    /**
+     * Update charts
+     */
     updateCharts() {
-        const products = this.state.products;
-        if (!products.length) return;
+        this.updateGrowthChart();
+        this.updateCategoryChart();
+    },
 
-        // Use AnalyzerService to get chart data
-        const growthData = AnalyzerService.getGrowthDistribution(products);
-        const categoryData = AnalyzerService.getCategoryBreakdown(products);
+    /**
+     * Update growth distribution chart
+     */
+    updateGrowthChart() {
+        const ctx = document.getElementById('growthChart');
+        if (!ctx) return;
 
-        // Render Growth Chart
-        const ctxGrowth = document.getElementById('growthChart').getContext('2d');
-        if (window.growthChartInstance) window.growthChartInstance.destroy();
-        
-        window.growthChartInstance = new Chart(ctxGrowth, {
+        const distribution = AnalyzerService.getGrowthDistribution(this.currentProducts);
+
+        if (this.charts.growth) {
+            this.charts.growth.destroy();
+        }
+
+        this.charts.growth = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: growthData.labels,
+                labels: Object.keys(distribution),
                 datasets: [{
-                    label: 'Number of Products',
-                    data: growthData.data,
-                    backgroundColor: 'rgba(255, 45, 85, 0.6)',
-                    borderColor: '#ff2d55',
+                    label: 'Products',
+                    data: Object.values(distribution),
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.8)',
+                        'rgba(255, 159, 64, 0.8)',
+                        'rgba(255, 205, 86, 0.8)',
+                        'rgba(75, 192, 192, 0.8)',
+                        'rgba(54, 162, 235, 0.8)'
+                    ],
+                    borderColor: [
+                        'rgb(255, 99, 132)',
+                        'rgb(255, 159, 64)',
+                        'rgb(255, 205, 86)',
+                        'rgb(75, 192, 192)',
+                        'rgb(54, 162, 235)'
+                    ],
                     borderWidth: 1
                 }]
             },
             options: {
                 responsive: true,
                 plugins: {
-                    legend: { display: false },
-                    title: { display: true, text: 'Growth Rate Distribution' }
+                    legend: { display: false }
                 },
                 scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' } },
-                    x: { grid: { display: false } }
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: 'rgba(255,255,255,0.7)' },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    },
+                    x: {
+                        ticks: { color: 'rgba(255,255,255,0.7)' },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    }
                 }
             }
         });
+    },
 
-        // Render Category Chart
-        const ctxCat = document.getElementById('categoryChart').getContext('2d');
-        if (window.categoryChartInstance) window.categoryChartInstance.destroy();
+    /**
+     * Update category breakdown chart
+     */
+    updateCategoryChart() {
+        const ctx = document.getElementById('categoryChart');
+        if (!ctx) return;
 
-        window.categoryChartInstance = new Chart(ctxCat, {
+        const breakdown = AnalyzerService.getCategoryBreakdown(this.currentProducts);
+
+        if (this.charts.category) {
+            this.charts.category.destroy();
+        }
+
+        this.charts.category = new Chart(ctx, {
             type: 'doughnut',
             data: {
-                labels: categoryData.labels,
+                labels: Object.keys(breakdown),
                 datasets: [{
-                    data: categoryData.data,
+                    data: Object.values(breakdown).map(b => b.count),
                     backgroundColor: [
-                        'rgba(255, 45, 85, 0.8)',
-                        'rgba(0, 245, 212, 0.8)',
-                        'rgba(123, 97, 255, 0.8)',
-                        'rgba(255, 215, 0, 0.8)',
-                        'rgba(0, 200, 83, 0.8)'
-                    ],
-                    borderWidth: 0
+                        'rgba(255, 99, 132, 0.8)',
+                        'rgba(54, 162, 235, 0.8)',
+                        'rgba(255, 206, 86, 0.8)',
+                        'rgba(75, 192, 192, 0.8)',
+                        'rgba(153, 102, 255, 0.8)',
+                        'rgba(255, 159, 64, 0.8)'
+                    ]
                 }]
             },
             options: {
                 responsive: true,
                 plugins: {
-                    legend: { position: 'right' }
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: 'rgba(255,255,255,0.7)' }
+                    }
                 }
             }
         });
-        
-        document.getElementById('chartsSection').style.display = 'grid';
     },
 
-    switchTab(tabName) {
-        this.state.currentTab = tabName;
-        
-        // Update UI
-        document.querySelectorAll('.tab').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.tab === tabName);
-        });
-
-        // Handle Sections Display
-        const productsSection = document.getElementById('productsSection');
-        const dashboardSection = document.getElementById('dashboardSection');
-        const statsGrid = document.getElementById('statsGrid');
-        const searchSection = document.querySelector('.search-section');
-
-        if (tabName === 'my-dashboard') {
-            productsSection.style.display = 'none';
-            dashboardSection.style.display = 'block';
-            statsGrid.style.display = 'none'; // Optional: hide stats on dashboard
-            searchSection.style.display = 'none'; // Optional: hide search on dashboard
-            MyDashboard.render();
-        } else {
-            productsSection.style.display = 'block';
-            dashboardSection.style.display = 'none';
-            statsGrid.style.display = 'grid';
-            searchSection.style.display = 'block';
-            this.renderProducts();
-        }
-    },
-
+    /**
+     * Show product detail modal
+     */
     showProductDetail(product) {
-        // Update Modal Content
-        const modalBody = document.getElementById('productModalBody');
-        document.getElementById('productModalTitle').textContent = product.name;
+        const modal = document.getElementById('productModal');
+        const title = document.getElementById('productModalTitle');
+        const body = document.getElementById('productModalBody');
 
-        // Use feature modules to render sections
-        modalBody.innerHTML = `
-            <div class="product-detail-layout">
-                <div class="detail-left">
-                    <img src="${product.image}" class="detail-image" alt="${product.name}">
-                    <div class="detail-actions">
-                        <button class="btn btn-primary btn-block" onclick="LinkManager.copyLink({id:'${product.id}', url:'${product.link}'})">
-                            📋 Refer Now (Copy Link)
-                        </button>
+        if (!modal || !body) return;
+
+        title.textContent = product.name;
+
+        body.innerHTML = `
+            <div class="product-detail">
+                <div class="detail-header">
+                    <div class="detail-image">
+                        <img src="${product.image}" alt="${product.name}">
+                    </div>
+                    <div class="detail-info">
+                        <h3>${product.name}</h3>
+                        <div class="detail-pricing">
+                            <span class="detail-price">฿${product.price.toLocaleString()}</span>
+                            ${product.discountPercentage > 0 ? `
+                                <span class="detail-original">฿${product.originalPrice.toLocaleString()}</span>
+                                <span class="detail-discount">-${product.discountPercentage}%</span>
+                            ` : ''}
+                        </div>
+                        <div class="detail-meta">
+                            <span>⭐ ${product.rating} (${product.reviewCount} reviews)</span>
+                            <span>📦 ${product.soldText}</span>
+                            <span>🏪 ${product.sellerName}</span>
+                        </div>
+                        <div class="detail-badges">
+                            ${TrendingFinder.getGrowthBadge(product.growthRate)}
+                            ${CommissionDisplay.getCommissionBadge(product.commissionRate)}
+                            ${CompetitionDetector.getCompetitionBadge(product)}
+                        </div>
                     </div>
                 </div>
-                <div class="detail-right">
-                    <div class="detail-stats-grid">
-                        <div class="d-stat">
-                            <label>Price</label>
-                            <span>฿${product.price}</span>
-                        </div>
-                        <div class="d-stat">
-                            <label>Commission</label>
-                            <span>${product.commissionRate}%</span>
-                        </div>
-                        <div class="d-stat">
-                            <label>Growth</label>
-                            <span class="${product.growthRate > 0 ? 'text-success' : ''}">+${product.growthRate}%</span>
-                        </div>
-                         <div class="d-stat">
-                            <label>Sold</label>
-                            <span>${product.soldText}</span>
-                        </div>
-                    </div>
 
-                    <hr class="separator">
+                <div class="detail-sections">
+                    ${CommissionDisplay.renderCommissionSection(product)}
+                    ${CompetitionDetector.renderCompetitionAnalysis(product)}
+                    ${ContentIdeas.renderContentIdeas(product)}
+                </div>
 
-                    ${CompetitionDetector.renderAnalysis(product)}
-
-                    <hr class="separator">
-
-                    ${CommissionDisplay.renderEarnings(product)}
-                    
-                    <hr class="separator">
-
-                    ${ContentIdeas.renderIdeas(product)}
+                <div class="detail-actions">
+                    <button class="btn btn-primary" onclick="LinkManager.copyLink(App.getProduct('${product.id}'))">
+                        📋 Copy Affiliate Link
+                    </button>
+                    <button class="btn btn-secondary" onclick="LinkManager.copyWithCaption(App.getProduct('${product.id}'))">
+                        📝 Copy with Caption
+                    </button>
+                    <button class="btn btn-secondary" onclick="MyDashboard.addToWishlist(App.getProduct('${product.id}'))">
+                        ❤️ Add to Wishlist
+                    </button>
                 </div>
             </div>
         `;
 
-        this.toggleModal('productModal', true);
+        modal.classList.add('active');
     },
 
-    toggleModal(modalId, show) {
-        const modal = document.getElementById(modalId);
-        if (show) modal.classList.add('active');
-        else modal.classList.remove('active');
+    /**
+     * Close product modal
+     */
+    closeProductModal() {
+        document.getElementById('productModal')?.classList.remove('active');
     },
 
-    setLoading(isLoading) {
-        this.state.loading = isLoading;
-        const loader = document.getElementById('loadingState');
-        const empty = document.getElementById('emptyState');
-        
-        if (isLoading) {
-            loader.style.display = 'flex';
-            empty.style.display = 'none';
-            document.getElementById('productsSection').style.display = 'none';
-        } else {
-            loader.style.display = 'none';
-            // empty state handled in performSearch
-        }
+    /**
+     * Get product by ID
+     */
+    getProduct(productId) {
+        return this.currentProducts.find(p => p.id === productId) ||
+            StorageService.getWishlist().find(p => p.id === productId);
     },
 
+    /**
+     * Show export modal
+     */
+    showExportModal() {
+        const modal = document.getElementById('productModal');
+        const title = document.getElementById('productModalTitle');
+        const body = document.getElementById('productModalBody');
+
+        if (!modal || !body) return;
+
+        title.textContent = '📥 Export Links';
+        body.innerHTML = LinkManager.renderExportModal();
+        modal.classList.add('active');
+    },
+
+    /**
+     * Show toast notification
+     */
     showToast(message, type = 'info') {
         const container = document.getElementById('toastContainer');
+        if (!container) return;
+
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.innerHTML = `
-            <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
-            <span>${message}</span>
-        `;
-        
+        toast.textContent = message;
+
         container.appendChild(toast);
-        
-        // Auto remove
+
+        // Auto remove after 3 seconds
         setTimeout(() => {
-            toast.style.animation = 'slideIn 0.3s ease reverse';
+            toast.style.opacity = '0';
             setTimeout(() => toast.remove(), 300);
         }, 3000);
-    },
-
-    loadSettings() {
-        const key = localStorage.getItem('firecrawl_api_key');
-        if (key) {
-            document.getElementById('apiKey').value = key;
-        }
-    },
-
-    saveSettings() {
-        const key = document.getElementById('apiKey').value.trim();
-        if (key) {
-            localStorage.setItem('firecrawl_api_key', key);
-            this.showToast('บันทึก API Key เรียบร้อย', 'success');
-            this.toggleModal('settingsModal', false);
-            // Reload if no products
-            if (this.state.products.length === 0) {
-              // optional: trigger search or demo data
-            }
-        } else {
-            this.showToast('Please enter an API Key', 'error');
-        }
-    },
-
-    async testApiKey() {
-        const key = document.getElementById('apiKey').value.trim();
-        const resultDiv = document.getElementById('apiTestResult');
-        const btn = document.getElementById('testApiBtn');
-
-        if (!key) {
-            this.showToast('Please enter an API Key first', 'error');
-            return;
-        }
-
-        // UI Loading State
-        btn.disabled = true;
-        btn.textContent = 'Testing...';
-        resultDiv.className = 'api-test-result loading show';
-        resultDiv.textContent = 'Checking API Key...';
-
-        try {
-            const isValid = await FirecrawlService.testApiKey(key);
-            
-            if (isValid) {
-                resultDiv.className = 'api-test-result success show';
-                resultDiv.textContent = '✅ API Key is Valid! Balance available.';
-                this.showToast('API Key is valid', 'success');
-            } else {
-                resultDiv.className = 'api-test-result error show';
-                resultDiv.textContent = '❌ API Key Invalid or Credit Exhausted.';
-                this.showToast('API Key check failed', 'error');
-            }
-        } catch (error) {
-            resultDiv.className = 'api-test-result error show';
-            resultDiv.textContent = '❌ Error: ' + error.message;
-        } finally {
-            btn.disabled = false;
-            btn.textContent = '🧪 ทดสอบ API';
-        }
-    },
-
-    checkApiKey() {
-        const key = localStorage.getItem('firecrawl_api_key');
-        if (!key) {
-            // Show welcome or prompt
-            setTimeout(() => {
-                this.showToast('Welcome! Please set your Firecrawl API Key.', 'info');
-                // Optional: Open settings automatically? 
-                // this.toggleModal('settingsModal', true);
-            }, 1000);
-        }
-    },
-
-    loadDemoData() {
-        // Mock data for initial view or testing
-        const demoProducts = [
-            {
-                id: 'demo1',
-                name: 'Lipstick Matte Lasting Waterproof',
-                price: 159,
-                originalPrice: 299,
-                discountPercentage: 47,
-                soldCount: 5000,
-                soldText: '5k+ sold',
-                rating: 4.8,
-                image: 'https://via.placeholder.com/300',
-                link: '#',
-                growthRate: 150,
-                commissionRate: 15,
-                sales: 1200
-            },
-            {
-                id: 'demo2',
-                name: 'Wireless Earbuds Pro',
-                price: 490,
-                originalPrice: 890,
-                discountPercentage: 55,
-                soldCount: 1200,
-                soldText: '1.2k+ sold',
-                rating: 4.5,
-                image: 'https://via.placeholder.com/300',
-                link: '#',
-                growthRate: 80,
-                commissionRate: 10,
-                sales: 500
-            },
-            {
-                id: 'demo3',
-                name: 'Vitamin C Serum Face',
-                price: 290,
-                originalPrice: 390,
-                discountPercentage: 25,
-                soldCount: 10000,
-                soldText: '10k+ sold',
-                rating: 4.9,
-                image: 'https://via.placeholder.com/300',
-                link: '#',
-                growthRate: 20,
-                commissionRate: 20,
-                sales: 3000
-            }
-        ];
-
-        this.state.products = demoProducts.map(p => {
-             const n = FirecrawlService.normalizeProduct(p);
-             n.saturationScore = AnalyzerService.calculateSaturationScore(n);
-             n.potentialEarnings = CommissionDisplay.calculateEarnings(n.price, n.commissionRate);
-             return n;
-        });
-
-        this.updateStats();
-        this.renderProducts();
-        this.updateCharts();
-        
-        document.getElementById('emptyState').style.display = 'none';
-        document.getElementById('productsSection').style.display = 'block';
-        document.getElementById('statsGrid').style.display = 'grid';
-    },
-    
-    // Animation Helper
-    animateValue(id, start, end, duration) {
-        if (start === end) return;
-        const range = end - start;
-        const obj = document.getElementById(id);
-        if (!obj) return;
-        
-        let current = start;
-        const increment = end > start ? 1 : -1;
-        const stepTime = Math.abs(Math.floor(duration / range));
-        
-        const timer = setInterval(function() {
-            current += increment;
-            obj.innerHTML = current;
-            if (current == end) {
-                clearInterval(timer);
-            }
-        }, stepTime);
     }
 };
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    App.init();
-});
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', () => App.init());
+
+// Make App available globally
+window.App = App;
