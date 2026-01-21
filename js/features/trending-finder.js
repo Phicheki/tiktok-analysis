@@ -1,42 +1,61 @@
 /**
  * Trending Finder Feature
- * Identifies trending products and rising stars
+ * Handles finding and displaying trending products
  */
 
 const TrendingFinder = {
-    
     /**
-     * Find products with high growth rate
+     * Find trending products
      */
-    findTrendingProducts(products, days = 7) {
-        // Filter products with > 20% growth
-        return products.filter(p => p.growthRate >= 20)
-                       .sort((a, b) => b.growthRate - a.growthRate);
+    findTrending(products, minGrowth = 0) {
+        // Safety check
+        if (!Array.isArray(products)) return [];
+        
+        // Filter by minimum growth
+        return AnalyzerService.findTrending(products, minGrowth);
     },
 
     /**
-     * Find "Rising Stars" (High growth but low saturation)
+     * Find rising stars (fast growth + low competition)
      */
     findRisingStars(products) {
-        return products.filter(p => p.growthRate >= 50 && p.saturationScore < 50);
+        return AnalyzerService.findRisingStars(products);
     },
 
     /**
-     * Get badge HTML for growth
+     * Render trending section header
      */
-    getGrowthBadge(rate) {
-        if (rate >= 100) return `<span class="badge badge-growth">🚀 +${rate}%</span>`;
-        if (rate >= 50) return `<span class="badge badge-growth">🔥 +${rate}%</span>`;
-        if (rate >= 20) return `<span class="badge badge-growth">📈 +${rate}%</span>`;
-        return '';
+    renderHeader(count) {
+        return `
+            <div class="section-header">
+                <h2>🔥 Trending Products <span class="count">(${count})</span></h2>
+                <div class="filter-pills">
+                    <button class="pill active" data-growth="0">All</button>
+                    <button class="pill" data-growth="50">50%+</button>
+                    <button class="pill" data-growth="100">100%+</button>
+                    <button class="pill" data-growth="200">200%+</button>
+                </div>
+            </div>
+        `;
     },
 
+    /**
+     * Get growth badge HTML
+     */
+    getGrowthBadge(growthRate) {
+        let icon = '📈';
+        if (growthRate >= 200) icon = '💥';
+        else if (growthRate >= 100) icon = '🚀';
+        else if (growthRate >= 50) icon = '🔥';
+
+        return `<span class="badge badge-growth">${icon} +${growthRate}%</span>`;
+    },
+
+    /**
+     * Get rising star indicator
+     */
     getRisingStarBadge() {
-        return `<span class="badge" style="background: #7b61ff;">⭐ Rising Star</span>`;
-    },
-
-    renderTrendingSection(container, products) {
-        // Render headers, badges etc.
+        return `<span class="badge badge-rising">⭐ Rising Star</span>`;
     }
 };
 

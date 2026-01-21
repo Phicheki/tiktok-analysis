@@ -1,66 +1,160 @@
 /**
  * Competition Detector Feature
- * Analyzes market saturation and finds hidden gems
+ * Handles saturation scoring and finding hidden gems
  */
 
 const CompetitionDetector = {
-    
     /**
-     * Find "Hidden Gems"
-     * Low Competition (Score < 30) AND Good Sales (> 100)
+     * Find hidden gems (high sales + low competition)
      */
     findHiddenGems(products) {
-        return products.filter(p => p.saturationScore < 30 && p.soldCount > 100);
+        if (!Array.isArray(products)) return [];
+        return AnalyzerService.findHiddenGems(products);
     },
 
     /**
-     * Get badge HTML
+     * Get saturation score for a product
+     */
+    getSaturationScore(product) {
+        return AnalyzerService.calculateSaturationScore(product);
+    },
+
+    /**
+     * Get competition level info
+     */
+    getCompetitionLevel(product) {
+        const score = this.getSaturationScore(product);
+        return AnalyzerService.getCompetitionLevel(score);
+    },
+
+    /**
+     * Get competition badge HTML
      */
     getCompetitionBadge(product) {
-        const level = AnalyzerService.getCompetitionLevel(product.saturationScore);
-        const colorClass = `badge-competition-${level.toLowerCase()}`;
-        return `<span class="badge ${colorClass}">Target: ${level}</span>`;
-    },
-
-    getHiddenGemBadge() {
-        return `<span class="badge" style="background: linear-gradient(135deg, #00f5d4 0%, #00b894 100%); color: #000;">💎 Hidden Gem</span>`;
-    },
-
-    renderAnalysis(product) {
-        const score = product.saturationScore;
+        const score = this.getSaturationScore(product);
         const level = AnalyzerService.getCompetitionLevel(score);
-        
-        let color = '#ccc';
-        if (level === 'Low') color = 'var(--competition-low)';
-        if (level === 'Medium') color = 'var(--competition-medium)';
-        if (level === 'High') color = 'var(--competition-high)';
+
+        const badgeClass = `badge-competition-${level.level}`;
+        return `<span class="badge ${badgeClass}">${level.label}</span>`;
+    },
+
+    /**
+     * Get hidden gem badge
+     */
+    getHiddenGemBadge() {
+        return `<span class="badge badge-gem">💎 Hidden Gem</span>`;
+    },
+
+    /**
+     * Render competition analysis section
+     */
+    renderCompetitionAnalysis(product) {
+        const score = this.getSaturationScore(product);
+        const level = AnalyzerService.getCompetitionLevel(score);
+        const isGem = score < 30 && product.soldCount > 100;
 
         return `
             <div class="competition-analysis">
-                <h3>📊 Market Analysis</h3>
-                <div class="score-bar-container" style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; margin: 10px 0;">
-                    <div class="score-bar" style="width: ${score}%; background: ${color}; height: 100%; border-radius: 4px;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
-                    <span>Saturation Score: <strong>${score}/100</strong></span>
-                    <span style="color: ${color}; font-weight: bold;">${level} Competition</span>
-                </div>
+                <h4>💎 Competition Analysis</h4>
                 
-                <div class="analysis-details" style="margin-top: 15px; font-size: 0.9rem; color: var(--text-secondary);">
-                    ${this.getAnalysisText(level, product)}
+                <div class="saturation-meter">
+                    <div class="meter-label">
+                        <span>Saturation Score</span>
+                        <span class="score" style="color: ${level.color}">${score}/100</span>
+                    </div>
+                    <div class="meter-bar">
+                        <div class="meter-fill" style="width: ${score}%; background: ${level.color}"></div>
+                    </div>
+                    <div class="meter-legend">
+                        <span>🟢 Low (0-30)</span>
+                        <span>🟡 Medium (30-60)</span>
+                        <span>🔴 High (60+)</span>
+                    </div>
+                </div>
+
+                <div class="competition-verdict">
+                    <div class="verdict-icon" style="color: ${level.color}">
+                        ${level.level === 'low' ? '💎' : level.level === 'medium' ? '⚡' : '🔥'}
+                    </div>
+                    <div class="verdict-text">
+                        <strong>${level.label} Competition</strong>
+                        <p>${this.getVerdictDescription(level.level, isGem)}</p>
+                    </div>
+                </div>
+
+                ${isGem ? this.renderHiddenGemCard(product) : ''}
+
+                <div class="competition-factors">
+                    <h5>📊 Analysis Factors</h5>
+                    <ul>
+                        <li>
+                            <span>Category Competition</span>
+                            <span>${product.category}</span>
+                        </li>
+                        <li>
+                            <span>Reviews Count</span>
+                            <span>${product.reviewCount.toLocaleString()}</span>
+                        </li>
+                        <li>
+                            <span>Sales/Reviews Ratio</span>
+                            <span>${Math.round(product.soldCount / Math.max(product.reviewCount, 1))}:1</span>
+                        </li>
+                    </ul>
                 </div>
             </div>
         `;
     },
 
-    getAnalysisText(level, product) {
-        if (level === 'Low') {
-            return `✅ <strong>Blue Ocean Opportunity!</strong> This product has good sales volume (${product.soldText}) but relatively low competition. Great chance to dominate this niche.`;
+    /**
+     * Get verdict description
+     */
+    getVerdictDescription(level, isGem) {
+        if (isGem) {
+            return '💎 สินค้านี้เป็น Hidden Gem! มีคนขายน้อยแต่ยอดขายดี โอกาสทำ affiliate สูงมาก!';
         }
-        if (level === 'Medium') {
-            return `⚠️ <strong>Growing Niche.</strong> There are already established sellers, but there's still room for high-quality content. Focus on unique selling points.`;
+
+        switch (level) {
+            case 'low':
+                return 'การแข่งขันต่ำ โอกาสดีในการทำ affiliate!';
+            case 'medium':
+                return 'การแข่งขันปานกลาง ต้องทำ content ที่ดีเพื่อแข่งขัน';
+            case 'high':
+                return 'การแข่งขันสูงมาก แนะนำให้มองหาสินค้าอื่น หรือทำ content ที่โดดเด่น';
+            default:
+                return '';
         }
-        return `🔴 <strong>Highly Saturated.</strong> This is a Red Ocean. Requires very high-quality content or unique offers to compete. Consider looking for related sub-niches.`;
+    },
+
+    /**
+     * Render hidden gem highlight card
+     */
+    renderHiddenGemCard(product) {
+        return `
+            <div class="hidden-gem-card">
+                <div class="gem-icon">💎✨</div>
+                <div class="gem-content">
+                    <strong>Hidden Gem Found!</strong>
+                    <p>สินค้านี้มียอดขาย ${product.soldText} แต่คนทำ affiliate น้อย นี่คือโอกาสทอง!</p>
+                    <div class="gem-actions">
+                        <button class="btn btn-primary btn-sm" onclick="LinkManager.copyLink(App.getProduct('${product.id}'))">
+                            📋 Copy Link Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Render hidden gems section header
+     */
+    renderHiddenGemsHeader(count) {
+        return `
+            <div class="section-header hidden-gems-header">
+                <h2>💎 Hidden Gems <span class="count">(${count})</span></h2>
+                <p class="section-desc">สินค้าที่คนทำ affiliate น้อย แต่ยอดขายดี - โอกาสทอง!</p>
+            </div>
+        `;
     }
 };
 
