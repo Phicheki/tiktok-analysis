@@ -72,29 +72,29 @@ class ProductCard extends HTMLElement {
                 </div>
                 
                 <div class="product-content">
-                    <h3 class="product-name" title="${p.name}">${p.name}</h3>
+                    <h3 class="product-name" title="${p.name || 'Unknown'}">${p.name || 'Unknown Product'}</h3>
                     
                     <div class="product-pricing">
-                        <span class="product-price">฿${p.price.toLocaleString()}</span>
-                        ${p.discountPercentage > 0 ? `
-                            <span class="product-original-price">฿${p.originalPrice.toLocaleString()}</span>
+                        <span class="product-price">฿${(p.price || 0).toLocaleString()}</span>
+                        ${(p.discountPercentage || 0) > 0 ? `
+                            <span class="product-original-price">฿${(p.originalPrice || 0).toLocaleString()}</span>
                             <span class="product-discount">-${p.discountPercentage}%</span>
                         ` : ''}
                     </div>
 
                     <div class="product-meta">
-                        <span class="meta-item">⭐ ${p.rating}</span>
-                        <span class="meta-item">📦 ${p.soldText}</span>
+                        <span class="meta-item">⭐ ${p.rating || 'N/A'}</span>
+                        <span class="meta-item">📦 ${p.soldText || 'N/A'}</span>
                     </div>
 
                     <div class="product-stats">
                         <div class="product-stat">
                             <span class="product-stat-label">Commission</span>
-                            <span class="product-stat-value commission-value">💰 ${p.commissionRate}%</span>
+                            <span class="product-stat-value commission-value">💰 ${p.commissionRate || 0}%</span>
                         </div>
                         <div class="product-stat">
                             <span class="product-stat-label">Est. Earnings</span>
-                            <span class="product-stat-value earnings-value">${CommissionDisplay.formatEarnings(p.potentialEarnings)}/เดือน</span>
+                            <span class="product-stat-value earnings-value">${CommissionDisplay.formatEarnings(p.potentialEarnings || 0)}/เดือน</span>
                         </div>
                     </div>
                 </div>
